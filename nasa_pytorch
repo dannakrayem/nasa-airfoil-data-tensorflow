@@ -1,0 +1,115 @@
+import pandas as pd
+df = pd.read_table("airfoil_self_noise.dat", sep='\t',header=None)
+
+#define column names
+col = ['Frequency', 'Angle_of_attack', 'Chord_length', 'stream_velocity',  'displacement_thickness',  'Sound_Pressure_Level']
+df.columns = col
+
+#load and clean data
+#print out first five observations
+df.head()
+#check data type for all features
+df.dtypes
+#check for missing values
+df.isnull().sum(axis=0)
+#provides count/mean/std/min/25%/50%/75%/max
+df.describe()
+import seaborn as sns
+sns.pairplot(df)
+from tensorflow import keras
+#split data into training and test data set
+#combine all features into big X and make label column y
+#get features and label
+X=df.drop('Sound_Pressure_Level', axis=1)
+y=df['Sound_Pressure_Level']
+
+#split the data into test and train set
+from sklearn.model_selection import train_test_split
+X_train, X_test, y_train, y_test = train_test_split(X, y, test_size=0.20, random_state=2021)
+
+
+#data normalization for neural network
+from sklearn.preprocessing import MinMaxScaler
+#MinMaxScaler changes variable to range 0 to 1
+scaler=MinMaxScaler()
+X_train= scaler.fit_transform(X_train)
+#don't fit test set do don't get data leakage
+X_test= scaler.transform(X_test)
+
+#PyTorch works directly on Tensor data structure instead of the data frame or NumPy array so need to convert data frame or numpy array to PyTorch Tensor using torch.tensor function
+import torch
+import torch.nn as nn
+import torch.nn.functional as F
+import numpy as np
+X_train = torch.tensor(X_train.astype(np.float32))
+y_train = torch.tensor(y_train.values.astype(np.float32).reshape(-1,1))
+y_train.shape
+#next get number of codes and features
+input_size=X_train.shape[1]
+output_size=y_train.shape[1]
+#specify number of neuron for first hidden layer of 11 (features + bias)
+hidden_size=10
+print(input_size)
+print(output_size)
+#define a class of LinearRegressionModel that is derivated from torch.nn.Module. 
+#torch.nn.Module is the base class for all neural network modules
+# LinearRegressionModel is the child class and torch.nn.Module is the parent class.
+# define the child module class derivated from parent class of torch.nn.Module)
+
+#The first layer is called the hidden layer that has hidden_size neurons and accepts inputs from features.
+#The last layer accepts inputs from the outputs of the previous layer and generates output with the size of output_size
+#We must specify the size of inputs and outputs for each neuron in PyTorch.
+class LinearRegressionModel(torch.nn.Module):
+    #define the constructor
+    def __init__(self, input_size, hidden_size, output_size):
+        super(LinearRegressionModel, self).__init__()
+        self.hidden = torch.nn.Linear(input_size, hidden_size)  
+        self.predict = torch.nn.Linear(hidden_size, output_size)  
+    #overife the forward function in this child class
+    def forward(self, x):
+        x = F.relu(self.hidden(x))     
+        y_pred = self.predict(x)            
+        return y_pred
+model = LinearRegressionModel(input_size, hidden_size, output_size)
+#specify loss function
+l = nn.MSELoss()
+optimizer = torch.optim.Adam(model.parameters(), lr=0.05)
+#train data using loop function that performs following tasks
+#Forward pass: It predicts the target based on the input features.
+#Calculate the loss: It computes the loss/error based on the user-defined loss function.
+#Reset the gradients: It sets the gradient to be zero.
+#Backward pass: It computes the gradient of the loss for all the model's learnable parameters.
+#Update the weights: It updates the weights using gradient descent.
+#fix the random seeds for troch and np
+torch.manual_seed(1)
+np.random.seed(0)
+
+#set the number of epochs
+num_epochs = 100
+for epoch in range(num_epochs):
+    #forward pass
+    y_pred = model(X_train.requires_grad_())
+
+    #calculate the loss
+    loss= l(y_pred, y_train)
+    #Set the gradients to be zero
+    optimizer.zero_grad()
+    
+    #backward pass: calculate gradients
+    loss.backward()
+
+    #update the weights
+    optimizer.step()
+  
+    print('epoch {0}, loss:{1:.4f}'.format(epoch, loss.item()))
+
+#evaluate model
+#convert numpy to tensor
+X_test = torch.from_numpy(X_test.astype(np.float32))
+#Stop tracking the gradient by calling detach since we don't use it anymore
+y_pred = model(X_test).detach().numpy()
+
+from sklearn.metrics import mean_squared_error,mean_absolute_error
+'The mean square error is {0:.4f}'.format(mean_squared_error(y_test,y_pred))
+'The root of mean square error is {0:.4f}'.format(mean_squared_error(y_test,y_pred,squared = False))
+'The mean absolute error is {0:.4f}'.format(mean_absolute_error(y_test,y_pred))
